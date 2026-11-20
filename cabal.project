@@ -1,0 +1,8 @@
+packages: .
+
+-- The libraries roon-mcp is built on, when they are checked out next to it.
+optional-packages:
+  ../roon-api
+  ../effectful-mcp
+  ../effectful-streamly
+  ../effectful-websockets

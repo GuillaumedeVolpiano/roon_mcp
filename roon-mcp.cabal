@@ -1,0 +1,85 @@
+cabal-version:   3.12
+name:            roon-mcp
+version:         0.1.0.0
+synopsis:        An MCP server that plays music on Roon
+description:
+  A Model Context Protocol server, over stdio, that lets an assistant list
+  the zones of a Roon system, search its library for tracks, queue them and
+  control playback. Built on roon-api and effectful-mcp.
+
+homepage:        https://github.com/GuillaumedeVolpiano/roon_mcp
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          GuillaumedeVolpiano
+maintainer:      xavier@wheredoibegin.fr
+category:        Sound, AI
+build-type:      Simple
+tested-with:     GHC ==9.12.4
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/GuillaumedeVolpiano/roon_mcp.git
+
+common shared
+  default-language: GHC2024
+  default-extensions:
+    DuplicateRecordFields
+    NoFieldSelectors
+    OverloadedRecordDot
+    OverloadedStrings
+
+  ghc-options:
+    -Wall -Wcompat -Wredundant-constraints -Wmissing-deriving-strategies
+    -Wunused-packages
+
+library
+  import:          shared
+  hs-source-dirs:  src
+  exposed-modules:
+    RoonMcp.Plan
+    RoonMcp.Tools
+
+  build-depends:
+    , aeson          ^>=2.3
+    , base           ^>=4.21
+    , effectful      ^>=2.7
+    , effectful-core ^>=2.7.1
+    , effectful-mcp  ^>=0.1
+    , roon-api       ^>=0.1
+    , streamly-core  ^>=0.3.3
+    , text           ^>=2.1
+    , time           ^>=1.14
+
+executable roon-mcp
+  import:         shared
+  hs-source-dirs: app
+  main-is:        Main.hs
+  ghc-options:    -threaded
+  build-depends:
+    , base          ^>=4.21
+    , effectful     ^>=2.7
+    , effectful-mcp ^>=0.1
+    , roon-api      ^>=0.1
+    , roon-mcp
+    , text          ^>=2.1
+
+test-suite roon-mcp-test
+  import:         shared
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Main.hs
+  ghc-options:    -threaded
+  build-depends:
+    , aeson          ^>=2.3
+    , base           ^>=4.21
+    , effectful      ^>=2.7
+    , effectful-core ^>=2.7.1
+    , effectful-mcp  ^>=0.1
+    , roon-api       ^>=0.1
+    , roon-mcp
+    , tasty          ^>=1.5
+    , tasty-hunit    ^>=0.10
+    , text           ^>=2.1
