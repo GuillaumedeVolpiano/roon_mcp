@@ -7,6 +7,7 @@
 * `set_volume`, `seek`, `set_playback_options` and `transfer_zone`.
 * `list_zones` gives the outputs with their volume and the playback
   options of each zone. Its `outputs` are now objects, no longer names.
+* The server gives Roon and MCP clients the version of this package.
 * Built on roon-api 0.2.
 
 ## 0.1.0.0 -- 2026-11-21

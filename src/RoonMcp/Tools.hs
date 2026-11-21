@@ -11,6 +11,7 @@
 module RoonMcp.Tools
   ( Context (..)
   , extension
+  , serverVersion
   , tools
   , instructions
   , describeError
@@ -22,6 +23,7 @@ import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Version (showVersion)
 import Effectful
 import Effectful.Concurrent (Concurrent)
 import Effectful.Concurrent.MVar (MVar, withMVar)
@@ -85,6 +87,7 @@ import Roon.Transport
   , subscribeQueue
   , transferZone
   )
+import Paths_roon_mcp (version)
 import RoonMcp.Plan
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
@@ -105,13 +108,18 @@ data Context = Context
   -- which then fails. Calls served at the same time wait for each other.
   }
 
+-- | The version of this package, as the server gives it to Roon and to
+-- MCP clients.
+serverVersion :: Text
+serverVersion = Text.pack (showVersion version)
+
 -- | How the server introduces itself to Roon.
 extension :: ExtensionInfo
 extension =
   ExtensionInfo
     { extensionId = "io.github.guillaumedevolpiano.roon-mcp"
     , displayName = "roon-mcp"
-    , displayVersion = "0.1.0.0"
+    , displayVersion = serverVersion
     , publisher = "roon-mcp"
     , email = "nobody@example.invalid"
     , website = Just "https://github.com/GuillaumedeVolpiano/roon_mcp"

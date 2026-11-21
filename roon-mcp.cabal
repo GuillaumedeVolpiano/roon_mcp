@@ -42,6 +42,9 @@ library
     RoonMcp.Plan
     RoonMcp.Tools
 
+  other-modules:   Paths_roon_mcp
+  autogen-modules: Paths_roon_mcp
+
   build-depends:
     , aeson          ^>=2.3
     , base           ^>=4.21

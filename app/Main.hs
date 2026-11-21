@@ -22,7 +22,7 @@ import Roon.Effect.TokenStore (defaultTokenFile, runTokenStoreFile)
 import Roon.Effect.WebSocket (ServerAddress (..), localServer, runWebSocket)
 import Roon.Error (RoonError)
 import Roon.Registry (ExtensionInfo (..))
-import RoonMcp.Tools (Context (..), describeError, extension, instructions, tools)
+import RoonMcp.Tools (Context (..), describeError, extension, instructions, tools, serverVersion)
 import System.Exit (exitFailure)
 import Text.Read (readMaybe)
 
@@ -40,7 +40,7 @@ program = do
   getArgs >>= \case
     [] -> do
       serveStdio
-        (serverConfig (implementation "roon-mcp" "0.1.0.0") (tools context))
+        (serverConfig (implementation "roon-mcp" serverVersion) (tools context))
           { instructions = Just instructions
           }
       pure True
