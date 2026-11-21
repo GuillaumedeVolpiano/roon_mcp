@@ -12,3 +12,4 @@ optional-packages:
   ../streamly-http
   ../streamly-network-udp
   ../streamly-websockets
+  ../streamly-network-tcp
