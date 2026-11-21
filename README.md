@@ -36,8 +36,10 @@ Then declare the server to the MCP client, for instance Claude Code:
 
     claude mcp add roon -- /path/to/roon-mcp
 
-`ROON_HOST` and `ROON_PORT` choose the server; the default is
-`127.0.0.1:9330`. `ROON_TRACE=1` describes every frame exchanged with Roon
+`ROON_HOST` and `ROON_PORT` choose the server. Without `ROON_HOST`,
+roon-mcp looks for one on the local network when it starts, by SOOD;
+`ROON_CORE`, a name or a unique id, chooses among several. If none answers,
+it uses `127.0.0.1:9330`. `ROON_TRACE=1` describes every frame exchanged with Roon
 on stderr, which MCP leaves free for logs.
 
 ## How it works

@@ -17,6 +17,7 @@ import Effectful.FileSystem.IO (stderr)
 import Effectful.FileSystem.IO.ByteString (hPutStrLn)
 import Effectful.MCP.Server (ServerConfig (..), implementation, serveStdio, serverConfig)
 import Roon.Connection (runRoon)
+import Roon.Discovery (Core (..), defaultDiscovery, discover)
 import Roon.Effect.TokenStore (defaultTokenFile, runTokenStoreFile)
 import Roon.Effect.WebSocket (ServerAddress (..), localServer, runWebSocket)
 import Roon.Error (RoonError)
@@ -45,26 +46,50 @@ program = do
       pure True
     ["register"] -> register context
     _ -> do
-      complain "usage: roon-mcp [register]   (ROON_HOST and ROON_PORT choose the server, default 127.0.0.1:9330; ROON_TRACE=1 describes every frame on stderr)"
+      complain "usage: roon-mcp [register]   (ROON_HOST and ROON_PORT choose the server, otherwise it is discovered, ROON_CORE choosing among several; ROON_TRACE=1 describes every frame on stderr)"
       pure False
 
--- | The server address from ROON_HOST and ROON_PORT, and the token file.
+-- | The server address, the token file and the options.
 configure :: Eff Effects Context
 configure = do
-  host <- maybe localServer.host id <$> lookupEnv "ROON_HOST"
-  port <- (>>= readMaybe) <$> lookupEnv "ROON_PORT"
+  address <- serverAddress
   tokenFile <- defaultTokenFile extension.extensionId
   connectionLock <- newMVar ()
   -- ROON_TRACE, when set, describes every frame on stderr.
   tracing <- maybe False (not . null) <$> lookupEnv "ROON_TRACE"
   pure
     Context
-      { address = ServerAddress {host, port = maybe localServer.port id port}
+      { address
       , tokenFile
       , registrationTimeout = 5_000_000
       , traceLimit = if tracing then Just 300 else Nothing
       , connectionLock
       }
+
+-- | ROON_HOST and ROON_PORT when ROON_HOST is set. Otherwise the server
+-- that answers a discovery on the network, the one named or identified by
+-- ROON_CORE if there are several; failing that, 127.0.0.1:9330.
+serverAddress :: Eff Effects ServerAddress
+serverAddress =
+  lookupEnv "ROON_HOST" >>= \case
+    Just host -> do
+      port <- (>>= readMaybe) <$> lookupEnv "ROON_PORT"
+      pure ServerAddress {host, port = maybe localServer.port id port}
+    Nothing -> do
+      wanted <- fmap Text.pack <$> lookupEnv "ROON_CORE"
+      cores <- discover defaultDiscovery
+      let chosen = case wanted of
+            Nothing -> cores
+            Just name -> [core | core <- cores, core.uniqueId == name || core.name == Just name]
+      case chosen of
+        core : others -> do
+          complain ("Using the Roon Server " <> maybe core.uniqueId id core.name <> " at " <> describe core.address <> if null others then "." else ", the first of several: ROON_CORE chooses one.")
+          pure core.address
+        [] -> do
+          complain ("No Roon Server " <> maybe "" (\name -> "named " <> name <> " ") wanted <> "answered the discovery; using " <> describe localServer <> ".")
+          pure localServer
+  where
+    describe address = Text.pack address.host <> ":" <> Text.pack (show address.port)
 
 -- | Register, waiting as long as the user takes to enable the extension.
 register :: Context -> Eff Effects Bool

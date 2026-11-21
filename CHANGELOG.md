@@ -6,3 +6,5 @@
   `search_tracks`, `queue_tracks` and `control`.
 * `roon-mcp register` to enable the extension once.
 * `ROON_TRACE` describes every frame exchanged with Roon on stderr.
+* Without `ROON_HOST`, the Roon Server is discovered on the local network
+  at start; `ROON_CORE` chooses among several.
