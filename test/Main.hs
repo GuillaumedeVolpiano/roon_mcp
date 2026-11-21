@@ -11,7 +11,7 @@ import Effectful.FileSystem (runFileSystem)
 import Effectful.MCP.Server (handleRequest, implementation, serverConfig)
 import Roon.Browse (Candidate (..), Hierarchy (..), Item (..), ItemHint (..), Session (..), TrackAction (..))
 import Roon.Effect.WebSocket (localServer)
-import Roon.Transport (PlaybackState (..), Zone (..), ZoneId (..))
+import Roon.Transport (Output (..), OutputId (..), PlaybackState (..), Volume (..), VolumeType (..), Zone (..), ZoneId (..))
 import RoonMcp.Plan
 import RoonMcp.Tools (Context (..), tools)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -52,21 +52,66 @@ tests =
             findZone "Garage" zones @?= Left "No zone named or identified as \"Garage\". Zones: Living Room (zone-0001), Kitchen (zone-0002)"
         ]
     , testGroup
+        "item ids"
+        [ testCase "carry the hierarchy, the session, the kind and the key" $ do
+            let current = Session Albums (Just "roon-mcp-b-1")
+            itemId current (trackItem "Play Album" "85:0") @?= Just "albums|roon-mcp-b-1|p|85:0"
+            itemId current (trackItem "An Album" "83:4") {hint = Just ListItem} @?= Just "albums|roon-mcp-b-1|l|83:4"
+            itemId current (trackItem "Play Now" "88:0") {hint = Just Action} @?= Just "albums|roon-mcp-b-1|a|88:0"
+            decodeItemId "albums|roon-mcp-b-1|l|83:4" @?= Just ItemRef {session = current, kind = KindList, key = "83:4"}
+            decodeItemId "search|s|p|2:0" @?= Just ItemRef {session = Session Search (Just "s"), kind = KindPlayable, key = "2:0"}
+        , testCase "items without a key, sessions without one and the settings have no id" $ do
+            itemId (Session Albums (Just "s")) (trackItem "No Results" "x") {itemKey = Nothing} @?= Nothing
+            itemId (Session Albums Nothing) (trackItem "An Album" "1:0") @?= Nothing
+            itemId (Session Settings (Just "s")) (trackItem "Setup" "1:0") @?= Nothing
+        , testCase "reject what is not one" $
+            map decodeItemId ["", "albums|s|l", "settings|s|l|1:0", "albums||l|1:0", "albums|s|z|1:0", "albums|s|l|", "roon-mcp-1-0|2:0"]
+              @?= replicate 7 Nothing
+        ]
+    , testGroup
+        "texts of Roon"
+        [ testCase "links are given as their text" $
+            map plainText ["Miles Davis", "[[487290|Miles Davis]]", "[[1|A]] / [[2|B]] and C", "open [[ only", "[[3|unclosed"]
+              @?= ["Miles Davis", "Miles Davis", "A / B and C", "open [[ only", "[[3|unclosed"]
+        ]
+    , testGroup
+        "play actions"
+        [ testCase "by name" $
+            map parsePlayAction ["play_now", "add_next", "queue", "start_radio", "shuffle", "Play Now", ""]
+              @?= [Just ActPlayNow, Just ActAddNext, Just ActQueue, Just ActStartRadio, Just ActShuffle, Nothing, Nothing]
+        , testCase "as Roon titles them" $
+            map playActionTitle [minBound .. maxBound] @?= ["Play Now", "Add Next", "Queue", "Start Radio", "Shuffle"]
+        ]
+    , testGroup
+        "volume"
+        [ testCase "all the outputs of a zone, or the one named or identified" $ do
+            let zone = (zoneNamed "zone-0001" "Living Room") {outputs = [output "out-1" "Amplifier", output "out-2" "Kitchen Speaker"]}
+            fmap (map (.displayName)) (outputsFor Nothing zone) @?= Right ["Amplifier", "Kitchen Speaker"]
+            fmap (map (.displayName)) (outputsFor (Just "kitchen speaker") zone) @?= Right ["Kitchen Speaker"]
+            fmap (map (.displayName)) (outputsFor (Just "out-1") zone) @?= Right ["Amplifier"]
+            fmap (map (.displayName)) (outputsFor (Just "Garage") zone)
+              @?= Left "No output named or identified as \"Garage\" in Living Room. Outputs: Amplifier, Kitchen Speaker"
+        , testCase "a level is kept within what the output accepts" $ do
+            let bounded = Volume {volumeType = VolumeDecibel, minimum = Just (-80), maximum = Just 0, value = Just (-30), step = Just 1, isMuted = Just False}
+            map (volumeWithin bounded) [-100, -30, 12] @?= [-80, -30, 0]
+            volumeWithin bounded {minimum = Nothing, maximum = Nothing} 500 @?= 500
+        ]
+    , testGroup
         "image media types"
         [ testCase "parameters and case are dropped" $
             map imageMediaType ["image/jpeg", "Image/PNG; q=1", " image/webp "] @?= [Just "image/jpeg", Just "image/png", Just "image/webp"]
         , testCase "what is not an image is refused" $
             map imageMediaType ["", "text/plain", "image/", "application/json"] @?= [Nothing, Nothing, Nothing, Nothing]
         ]
-    , testCase "tools/list gives the six tools, each with an object schema" $ do
+    , testCase "tools/list gives the twelve tools, each with an object schema" $ do
         lock <- newMVar ()
         let context = Context {address = localServer, tokenFile = "/nonexistent/tokens.json", registrationTimeout = 1, traceLimit = Nothing, connectionLock = lock}
         result <- runEff . runConcurrent . runFileSystem $
           handleRequest (serverConfig (implementation "roon-mcp" "0") (tools context)) "tools/list" (KeyMap.fromList [("_meta", meta)])
         case result of
           Right (Object fields) | Just (Array listed) <- KeyMap.lookup "tools" fields -> do
-            map (field "name") (toList listed) @?= map (Just . String) ["list_zones", "get_queue", "search_tracks", "queue_tracks", "control", "get_image"]
-            map (\definition -> field "inputSchema" definition >>= field "type") (toList listed) @?= replicate 6 (Just (String "object"))
+            map (field "name") (toList listed) @?= map (Just . String) ["list_zones", "get_queue", "search_tracks", "queue_tracks", "control", "browse_library", "play_item", "set_volume", "seek", "set_playback_options", "transfer_zone", "get_image"]
+            map (\definition -> field "inputSchema" definition >>= field "type") (toList listed) @?= replicate 12 (Just (String "object"))
           other -> assertFailure ("unexpected: " <> show other)
     ]
   where
@@ -78,22 +123,27 @@ tests =
 trackItem :: Text -> Text -> Item
 trackItem title key = Item {title, subtitle = Nothing, imageKey = Nothing, itemKey = Just key, hint = Just ActionList, inputPrompt = Nothing}
 
+output :: Text -> Text -> Output
+output identifier name =
+  Output {outputId = OutputId identifier, zoneId = ZoneId "zone-0001", displayName = name, volume = Nothing, sourceControls = [], canGroupWithOutputIds = []}
+
 zones :: [Zone]
-zones = [zone "zone-0001" "Living Room", zone "zone-0002" "Kitchen"]
-  where
-    zone identifier name =
-      Zone
-        { zoneId = ZoneId identifier
-        , displayName = name
-        , outputs = []
-        , state = Stopped
-        , isPreviousAllowed = False
-        , isNextAllowed = False
-        , isPauseAllowed = False
-        , isPlayAllowed = True
-        , isSeekAllowed = False
-        , queueItemsRemaining = Nothing
-        , queueTimeRemaining = Nothing
-        , settings = Nothing
-        , nowPlaying = Nothing
-        }
+zones = [zoneNamed "zone-0001" "Living Room", zoneNamed "zone-0002" "Kitchen"]
+
+zoneNamed :: Text -> Text -> Zone
+zoneNamed identifier name =
+  Zone
+    { zoneId = ZoneId identifier
+    , displayName = name
+    , outputs = []
+    , state = Stopped
+    , isPreviousAllowed = False
+    , isNextAllowed = False
+    , isPauseAllowed = False
+    , isPlayAllowed = True
+    , isSeekAllowed = False
+    , queueItemsRemaining = Nothing
+    , queueTimeRemaining = Nothing
+    , settings = Nothing
+    , nowPlaying = Nothing
+    }

@@ -25,17 +25,27 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Effectful
 import Effectful.Concurrent (Concurrent)
 import Effectful.Concurrent.MVar (MVar, withMVar)
-import Effectful.Error.Static (Error, runErrorNoCallStack)
+import Effectful.Error.Static (Error, runErrorNoCallStack, throwError)
 import Data.Text.Encoding (encodeUtf8)
 import Effectful.FileSystem (FileSystem)
 import Effectful.FileSystem.IO (stderr)
 import Effectful.FileSystem.IO.ByteString (hPutStrLn)
 import Effectful.MCP.Tool
 import Roon.Browse
-  ( Candidate (..)
+  ( BrowseResult (..)
+  , Candidate (..)
+  , Hierarchy (..)
   , Item (..)
+  , List (..)
+  , ListHint (..)
+  , LoadResult (..)
+  , Navigation (..)
   , SearchOptions (..)
+  , Session (..)
+  , browse
   , defaultSearchOptions
+  , load
+  , performAction
   , performTrackAction
   , searchTracksConcurrently
   , trackActionTitle
@@ -50,16 +60,30 @@ import Roon.Registry (ExtensionInfo (..))
 import Roon.Transport
   ( Control (..)
   , DisplayLines (..)
+  , Loop (..)
+  , LoopChange (..)
   , NowPlaying (..)
   , Output (..)
+  , OutputId (..)
   , PlaybackState (..)
   , QueueEvent (..)
   , QueueItem (..)
+  , Seek (..)
+  , SettingsChange (..)
+  , Volume (..)
+  , VolumeChange (..)
+  , VolumeType (..)
   , Zone (..)
   , ZoneId (..)
+  , ZoneSettings (..)
+  , changeSettings
+  , changeVolume
   , control
   , getZones
+  , mute
+  , seek
   , subscribeQueue
+  , transferZone
   )
 import RoonMcp.Plan
 import Streamly.Data.Fold qualified as Fold
@@ -103,7 +127,9 @@ instructions =
   \candidates by their title and artists (search results give no album); then call queue_tracks \
   \with the chosen candidate ids, in order, and a mode. Candidate ids come from search_tracks: use \
   \them soon after the search. Zones, queue items and candidates may carry an image_key: get_image \
-  \returns that image, such as an album cover."
+  \returns that image, such as an album cover. For albums, artists, playlists and radios, \
+  \browse_library lists or searches the library and play_item plays what it found. set_volume, seek, \
+  \set_playback_options and transfer_zone act on a zone."
 
 type Effects es = (IOE :> es, Concurrent :> es, FileSystem :> es)
 
@@ -136,6 +162,7 @@ describeError context = \case
   BrowseFailed message -> "Roon refused: " <> message
   BrowseItemMissing what -> "Roon did not offer " <> what <> "."
   ImageFailed reason -> "Roon gave no image: " <> reason
+  UnexpectedReply _ "InvalidItemKey" -> "This id is no longer valid: call browse_library or search_tracks again for fresh ids."
   UnexpectedReply request status -> "Roon answered " <> request <> " with " <> status <> "."
   other -> Text.pack (show other)
 
@@ -172,6 +199,63 @@ tools context =
     )
       {annotations = noAnnotations {readOnlyHint = Just False, destructiveHint = Just False, openWorldHint = Just False}}
   , ( tool
+        "browse_library"
+        "Browse the Roon library: albums, artists, playlists, genres, composers and internet radios, or search \
+        \it for anything. Give one of: a hierarchy to list it from its top, a search text, or the item_id of an \
+        \item of kind \"list\" from an earlier call to open it. Items of kind \"playable\" (a track, or \
+        \\"Play Album\", \"Play Playlist\") go to play_item, and so does a whole album or playlist by its own \
+        \item_id. Long listings come in pages: offset and max_items."
+        browseSchema
+        (withArguments (browseLibrary context))
+    )
+      {annotations = readOnly}
+  , ( tool
+        "play_item"
+        "Play something found by browse_library in a zone: a track, an album, a playlist, an artist or a radio, \
+        \by its item_id. Actions: \"queue\" adds it at the end of the queue; \"add_next\" right after the \
+        \current track; \"play_now\" replaces the queue and plays it at once; \"start_radio\" plays similar \
+        \music; \"shuffle\" (playlists) plays it in random order, replacing the queue. Prefer queue or add_next \
+        \unless the user wants the queue replaced."
+        playItemSchema
+        (withArguments (playItem context))
+    )
+      -- Destructive: play_now, start_radio and shuffle replace the queue.
+      {annotations = noAnnotations {readOnlyHint = Just False, destructiveHint = Just True, idempotentHint = Just False, openWorldHint = Just False}}
+  , ( tool
+        "set_volume"
+        "Set or move the volume of a zone, or mute it. The volume is in the units of each output, between the \
+        \minimum and the maximum that list_zones gives (some are in decibels, hence negative). Give \"level\" \
+        \for a volume, or \"change\" to move it by that much, and \"mute\" to mute or unmute. All the outputs \
+        \of the zone are changed unless \"output\" names one. Raise the volume in small moves."
+        volumeSchema
+        (withArguments (setVolume context))
+    )
+      {annotations = changes}
+  , ( tool
+        "seek"
+        "Move inside the track that plays in a zone: to a position in seconds from its start, or by a number of \
+        \seconds (negative to go back) when \"relative\" is true."
+        seekSchema
+        (withArguments (seekZone context))
+    )
+      {annotations = changes}
+  , ( tool
+        "set_playback_options"
+        "Change how a zone plays: shuffle, the Roon Radio that follows the queue (auto_radio), and the loop \
+        \(\"disabled\", \"loop\" for the whole queue, \"loop_one\" for the current track). Options left out \
+        \stay as they are."
+        optionsSchema
+        (withArguments (setOptions context))
+    )
+      {annotations = changes {idempotentHint = Just True}}
+  , ( tool
+        "transfer_zone"
+        "Move what plays in a zone, with its queue, to another zone."
+        transferSchema
+        (withArguments (transfer context))
+    )
+      {annotations = changes}
+  , ( tool
         "get_image"
         "Fetch an image of Roon, such as the cover of what plays, from an image_key given by list_zones, \
         \get_queue or search_tracks. The image fits in a square of the size asked, in pixels."
@@ -182,6 +266,7 @@ tools context =
   ]
   where
     readOnly = noAnnotations {readOnlyHint = Just True, openWorldHint = Just False}
+    changes = noAnnotations {readOnlyHint = Just False, destructiveHint = Just False, openWorldHint = Just False}
 
 -- list_zones
 
@@ -194,15 +279,31 @@ zoneSummary zone =
     [ "zone_id" .= unZoneId zone.zoneId
     , "name" .= zone.displayName
     , "state" .= stateName zone.state
-    , "outputs" .= map (\output -> output.displayName) zone.outputs
+    , "outputs" .= map outputSummary zone.outputs
     , "allowed" .= [name | (name, True) <- [("play", zone.isPlayAllowed), ("pause", zone.isPauseAllowed), ("previous", zone.isPreviousAllowed), ("next", zone.isNextAllowed), ("seek", zone.isSeekAllowed)] :: [(Text, Bool)]]
     ]
       <> catMaybes
-        [ ("now_playing" .=) . nowPlaying <$> zone.nowPlaying
+        [ ("options" .=) . options <$> zone.settings
+        , ("now_playing" .=) . nowPlaying <$> zone.nowPlaying
         , ("queue_items_remaining" .=) <$> zone.queueItemsRemaining
         , ("queue_seconds_remaining" .=) <$> zone.queueTimeRemaining
         ]
   where
+    options settings = object ["shuffle" .= settings.shuffle, "auto_radio" .= settings.autoRadio, "loop" .= loopName settings.loop]
+    outputSummary output =
+      object $
+        ["output_id" .= unOutputId output.outputId, "name" .= output.displayName]
+          <> catMaybes [("volume" .=) . volumeSummary <$> output.volume]
+    volumeSummary volume =
+      object $
+        ["unit" .= volumeUnit volume.volumeType]
+          <> catMaybes
+            [ ("level" .=) <$> volume.value
+            , ("minimum" .=) <$> volume.minimum
+            , ("maximum" .=) <$> volume.maximum
+            , ("step" .=) <$> volume.step
+            , ("muted" .=) <$> volume.isMuted
+            ]
     nowPlaying playing =
       object $
         ["title" .= playing.threeLine.line1]
@@ -224,6 +325,23 @@ stateName = \case
 
 unZoneId :: ZoneId -> Text
 unZoneId (ZoneId zoneId) = zoneId
+
+unOutputId :: OutputId -> Text
+unOutputId (OutputId outputId) = outputId
+
+loopName :: Loop -> Text
+loopName = \case
+  LoopDisabled -> "disabled"
+  LoopQueue -> "loop"
+  LoopOne -> "loop_one"
+  OtherLoop name -> name
+
+volumeUnit :: VolumeType -> Text
+volumeUnit = \case
+  VolumeDecibel -> "db"
+  VolumeNumber -> "number"
+  VolumeIncremental -> "incremental"
+  OtherVolumeType name -> name
 
 -- get_queue
 
@@ -329,6 +447,183 @@ controlZone context (ControlArguments wanted actionName) = case lookup actionNam
   where
     controls = [("play", Play), ("pause", Pause), ("playpause", PlayPause), ("stop", Stop), ("next", Next), ("previous", Previous)]
 
+-- browse_library
+
+data BrowseArguments = BrowseArguments (Maybe Text) (Maybe Text) (Maybe Text) Int Int
+
+instance FromJSON BrowseArguments where
+  parseJSON = withObject "arguments" $ \fields ->
+    BrowseArguments
+      <$> fields .:? "hierarchy"
+      <*> fields .:? "search"
+      <*> fields .:? "item_id"
+      <*> fields .:? "offset" .!= 0
+      <*> fields .:? "max_items" .!= 30
+
+browseLibrary :: Effects es => Context -> BrowseArguments -> Eff es ToolResult
+browseLibrary context (BrowseArguments hierarchyName searchText itemText offset maxItems) = do
+  stamp <- liftIO getPOSIXTime
+  -- A session of its own for each listing started here, so that it does
+  -- not move those of earlier ones, whose ids may still be used.
+  let fresh hierarchy = Session {hierarchy, multiSessionKey = Just ("roon-mcp-b-" <> Text.pack (show (floor (stamp * 1_000_000) :: Integer)))}
+  case (hierarchyName, searchText, itemText) of
+    (Just name, Nothing, Nothing) -> case lookup name [(found, hierarchy) | (found, hierarchy) <- libraryHierarchies, hierarchy /= Search] of
+      Just hierarchy -> open (fresh hierarchy) (Top Nothing)
+      Nothing -> pure (errorResult ("Unknown hierarchy \"" <> name <> "\": use " <> Text.intercalate ", " browsable <> "."))
+    (Nothing, Just text, Nothing)
+      | Text.null (Text.strip text) -> pure (errorResult "Give a text to search for.")
+      | otherwise -> open (fresh Search) (Top (Just text))
+    (Nothing, Nothing, Just identifier) -> case decodeItemId identifier of
+      Nothing -> pure (errorResult "Not an item_id from browse_library.")
+      Just ItemRef {kind = KindAction} -> pure (errorResult "This item is an action: it is not opened. Give play_item the item that offers it.")
+      Just ref -> open ref.session (Select ref.key)
+    _ -> pure (errorResult "Give exactly one of hierarchy, search and item_id.")
+  where
+    browsable = [name | (name, hierarchy) <- libraryHierarchies, hierarchy /= Search]
+    open current navigation =
+      roon context (listing current) $ do
+        browse current (Nothing :: Maybe ZoneId) navigation >>= \case
+          BrowseMessage message True -> throwError (BrowseFailed message)
+          _ -> pure ()
+        level <- load current (max 0 offset) (clamp 1 100 maxItems)
+        -- Observed with Roon Server 2.75: a key selected in a session that
+        -- Roon has forgotten is not refused; the top of the hierarchy
+        -- comes back instead. An item opened is never the top.
+        case navigation of
+          Select _ | level.list.level == 0 -> throwError (UnexpectedReply "com.roonlabs.browse:1/browse" "InvalidItemKey")
+          _ -> pure level
+    listing current level =
+      structuredResult . object $
+        [ "title" .= plainText level.list.title
+        , "total" .= level.list.count
+        , "offset" .= level.offset
+        , "items" .= map (entry current) level.items
+        ]
+          <> catMaybes
+            [ ("subtitle" .=) . plainText <$> level.list.subtitle
+            , ("image_key" .=) <$> level.list.imageKey
+            , if level.list.hint == Just ActionListHint
+                then Just ("note" .= ("These are the actions of the item opened: give that item to play_item with the action wanted." :: Text))
+                else Nothing
+            ]
+    entry current item =
+      object $
+        ["title" .= plainText item.title, "kind" .= kindName (itemKind item)]
+          <> catMaybes
+            [ ("item_id" .=) <$> itemId current item
+            , ("subtitle" .=) . plainText <$> item.subtitle
+            , ("image_key" .=) <$> item.imageKey
+            ]
+
+-- play_item
+
+data PlayItemArguments = PlayItemArguments Text Text Text
+
+instance FromJSON PlayItemArguments where
+  parseJSON = withObject "arguments" $ \fields ->
+    PlayItemArguments <$> fields .: "zone" <*> fields .: "item_id" <*> fields .:? "action" .!= "queue"
+
+playItem :: Effects es => Context -> PlayItemArguments -> Eff es ToolResult
+playItem context (PlayItemArguments wanted identifier actionName) = case (parsePlayAction actionName, target) of
+  (Nothing, _) -> pure (errorResult ("Unknown action \"" <> actionName <> "\": use " <> Text.intercalate ", " (map playActionName [minBound .. maxBound]) <> "."))
+  (_, Left problem) -> pure (errorResult problem)
+  (Just action, Right candidate) -> withZone context wanted $ \zone ->
+    textResult ("Done: " <> playActionTitle action <> " in " <> zone.displayName <> ".")
+      <$ performAction zone.zoneId (playActionTitle action) candidate
+  where
+    -- An item of browse_library, or a candidate of search_tracks.
+    target = case (decodeItemId identifier, decodeCandidateId identifier) of
+      (Just ItemRef {kind = KindAction}, _) -> Left "This item is an action. Give the item that offers it, with the action wanted."
+      (Just ItemRef {kind = KindOther}, _) -> Left "This item cannot be played."
+      (Just ref, _) -> Right Candidate {session = ref.session, item = Item {title = "this item", subtitle = Nothing, imageKey = Nothing, itemKey = Just ref.key, hint = Nothing, inputPrompt = Nothing}}
+      (Nothing, Just candidate) -> Right candidate
+      (Nothing, Nothing) -> Left "Not an item_id from browse_library nor a candidate id from search_tracks."
+
+-- set_volume
+
+data VolumeArguments = VolumeArguments Text (Maybe Text) (Maybe Double) (Maybe Double) (Maybe Bool)
+
+instance FromJSON VolumeArguments where
+  parseJSON = withObject "arguments" $ \fields ->
+    VolumeArguments <$> fields .: "zone" <*> fields .:? "output" <*> fields .:? "level" <*> fields .:? "change" <*> fields .:? "mute"
+
+setVolume :: Effects es => Context -> VolumeArguments -> Eff es ToolResult
+setVolume context (VolumeArguments wanted outputName level change muting)
+  | Just _ <- level, Just _ <- change = pure (errorResult "Give level or change, not both.")
+  | Nothing <- level, Nothing <- change, Nothing <- muting = pure (errorResult "Give level, change or mute.")
+  | otherwise = withZone context wanted $ \zone -> case outputsFor outputName zone of
+      Left problem -> pure (errorResult problem)
+      Right outputs -> report zone <$> traverse apply outputs
+  where
+    apply output = (output,) <$> runErrorNoCallStack (adjust output)
+    adjust output = case output.volume of
+      Nothing -> pure (Just ("Roon does not control the volume of this output." :: Text))
+      Just volume -> do
+        mapM_ (changeVolume output.outputId . VolumeTo . volumeWithin volume) level
+        mapM_ (changeVolume output.outputId . VolumeBy) change
+        mapM_ (mute output.outputId) muting
+        pure Nothing
+    report zone outcomes =
+      let entry (output, outcome) =
+            object $
+              ["output" .= output.displayName, "ok" .= (outcome == Right Nothing)]
+                <> either (\err -> ["error" .= describeError context err]) (maybe [] (\why -> ["error" .= why])) outcome
+          failures = length [() | (_, outcome) <- outcomes, outcome /= Right Nothing]
+          value = object ["zone" .= zone.displayName, "outputs" .= map entry outcomes, "failures" .= failures]
+       in (structuredResult value) {isError = failures == length outcomes}
+
+-- seek
+
+data SeekArguments = SeekArguments Text Int Bool
+
+instance FromJSON SeekArguments where
+  parseJSON = withObject "arguments" $ \fields ->
+    SeekArguments <$> fields .: "zone" <*> fields .: "seconds" <*> fields .:? "relative" .!= False
+
+seekZone :: Effects es => Context -> SeekArguments -> Eff es ToolResult
+seekZone context (SeekArguments wanted seconds relative) = withZone context wanted $ \zone ->
+  if not zone.isSeekAllowed
+    then pure (errorResult ("Seeking is not allowed in " <> zone.displayName <> " at the moment."))
+    else
+      textResult ("Done: " <> (if relative then "moved by " else "moved to ") <> Text.pack (show seconds) <> " seconds in " <> zone.displayName <> ".")
+        <$ seek zone.zoneId (if relative then SeekBy seconds else SeekTo (max 0 seconds))
+
+-- set_playback_options
+
+data OptionsArguments = OptionsArguments Text (Maybe Bool) (Maybe Bool) (Maybe Text)
+
+instance FromJSON OptionsArguments where
+  parseJSON = withObject "arguments" $ \fields ->
+    OptionsArguments <$> fields .: "zone" <*> fields .:? "shuffle" <*> fields .:? "auto_radio" <*> fields .:? "loop"
+
+setOptions :: Effects es => Context -> OptionsArguments -> Eff es ToolResult
+setOptions context (OptionsArguments wanted shuffle autoRadio loopText) = case traverse parseLoop loopText of
+  Nothing -> pure (errorResult ("Unknown loop \"" <> maybe "" id loopText <> "\": use disabled, loop or loop_one."))
+  Just loop
+    | shuffle == Nothing && autoRadio == Nothing && loop == Nothing -> pure (errorResult "Give shuffle, auto_radio or loop.")
+    | otherwise -> withZone context wanted $ \zone ->
+        textResult ("Done: options changed in " <> zone.displayName <> ".")
+          <$ changeSettings zone.zoneId SettingsChange {setShuffle = shuffle, setAutoRadio = autoRadio, setLoop = SetLoop <$> loop}
+  where
+    parseLoop name = lookup name [("disabled", LoopDisabled), ("loop", LoopQueue), ("loop_one", LoopOne)]
+
+-- transfer_zone
+
+data TransferArguments = TransferArguments Text Text
+
+instance FromJSON TransferArguments where
+  parseJSON = withObject "arguments" $ \fields -> TransferArguments <$> fields .: "from_zone" <*> fields .: "to_zone"
+
+transfer :: Effects es => Context -> TransferArguments -> Eff es ToolResult
+transfer context (TransferArguments fromName toName) =
+  roon context id $
+    getZones >>= \zones -> case (findZone fromName zones, findZone toName zones) of
+      (Left problem, _) -> pure (errorResult problem)
+      (_, Left problem) -> pure (errorResult problem)
+      (Right from, Right to)
+        | from.zoneId == to.zoneId -> pure (errorResult "The two zones are the same.")
+        | otherwise -> textResult ("Done: moved from " <> from.displayName <> " to " <> to.displayName <> ".") <$ transferZone from.zoneId to.zoneId
+
 -- get_image
 
 data ImageArguments = ImageArguments Text Int
@@ -354,6 +649,89 @@ noArguments = object ["type" .= ("object" :: Text), "additionalProperties" .= Fa
 
 zoneProperty :: Value
 zoneProperty = object ["type" .= ("string" :: Text), "description" .= ("A zone id or name, from list_zones." :: Text)]
+
+browseSchema :: Value
+browseSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties"
+        .= object
+          [ "hierarchy" .= object ["type" .= ("string" :: Text), "enum" .= [name | (name, hierarchy) <- libraryHierarchies, hierarchy /= Search], "description" .= ("List this part of the library from its top." :: Text)]
+          , "search" .= object ["type" .= ("string" :: Text), "description" .= ("Search the library for this text: artists, albums, tracks, playlists and more." :: Text)]
+          , "item_id" .= object ["type" .= ("string" :: Text), "description" .= ("Open this item of kind \"list\" from an earlier browse_library." :: Text)]
+          , "offset" .= object ["type" .= ("integer" :: Text), "minimum" .= (0 :: Int), "default" .= (0 :: Int)]
+          , "max_items" .= object ["type" .= ("integer" :: Text), "minimum" .= (1 :: Int), "maximum" .= (100 :: Int), "default" .= (30 :: Int)]
+          ]
+    , "additionalProperties" .= False
+    ]
+
+playItemSchema :: Value
+playItemSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties"
+        .= object
+          [ "zone" .= zoneProperty
+          , "item_id" .= object ["type" .= ("string" :: Text), "description" .= ("An item_id from browse_library, or a candidate id from search_tracks." :: Text)]
+          , "action" .= object ["type" .= ("string" :: Text), "enum" .= map playActionName [minBound .. maxBound], "default" .= ("queue" :: Text)]
+          ]
+    , "required" .= ["zone" :: Text, "item_id"]
+    , "additionalProperties" .= False
+    ]
+
+volumeSchema :: Value
+volumeSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties"
+        .= object
+          [ "zone" .= zoneProperty
+          , "output" .= object ["type" .= ("string" :: Text), "description" .= ("An output id or name of the zone, from list_zones; all its outputs when left out." :: Text)]
+          , "level" .= object ["type" .= ("number" :: Text), "description" .= ("The volume to set, in the units of the output." :: Text)]
+          , "change" .= object ["type" .= ("number" :: Text), "description" .= ("How much to move the volume, in the units of the output; negative to lower it." :: Text)]
+          , "mute" .= object ["type" .= ("boolean" :: Text)]
+          ]
+    , "required" .= ["zone" :: Text]
+    , "additionalProperties" .= False
+    ]
+
+seekSchema :: Value
+seekSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties"
+        .= object
+          [ "zone" .= zoneProperty
+          , "seconds" .= object ["type" .= ("integer" :: Text)]
+          , "relative" .= object ["type" .= ("boolean" :: Text), "default" .= False]
+          ]
+    , "required" .= ["zone" :: Text, "seconds"]
+    , "additionalProperties" .= False
+    ]
+
+optionsSchema :: Value
+optionsSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties"
+        .= object
+          [ "zone" .= zoneProperty
+          , "shuffle" .= object ["type" .= ("boolean" :: Text)]
+          , "auto_radio" .= object ["type" .= ("boolean" :: Text)]
+          , "loop" .= object ["type" .= ("string" :: Text), "enum" .= ["disabled" :: Text, "loop", "loop_one"]]
+          ]
+    , "required" .= ["zone" :: Text]
+    , "additionalProperties" .= False
+    ]
+
+transferSchema :: Value
+transferSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties" .= object ["from_zone" .= zoneProperty, "to_zone" .= zoneProperty]
+    , "required" .= ["from_zone" :: Text, "to_zone"]
+    , "additionalProperties" .= False
+    ]
 
 imageSchema :: Value
 imageSchema =

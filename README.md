@@ -15,11 +15,17 @@ speaks MCP revision 2026-07-28.
 
 | Tool | What it does |
 |---|---|
-| `list_zones` | The zones, what plays in each, and what each allows. |
+| `list_zones` | The zones, what plays in each, their outputs with their volume, their playback options, and what each allows. |
 | `get_queue` | The next items of the queue of a zone. |
 | `search_tracks` | Several searches at once, one per track; candidates with an id, a title and artists. |
 | `queue_tracks` | Candidates into the queue of a zone, in order: at the end (`queue`, the default), after the current track (`add_next`), or in place of the queue, the first at once (`play_now`). Reports each track. |
 | `control` | Play, pause, stop, next, previous. |
+| `browse_library` | The library by albums, artists, playlists, genres, composers and internet radios, or a search of all of it; opens the lists it finds, page by page. |
+| `play_item` | What `browse_library` found (a track, an album, a playlist, an artist, a radio) into a zone: `queue` (the default), `add_next`, `play_now`, `start_radio` or `shuffle`. |
+| `set_volume` | The volume of a zone or of one of its outputs: a level, a move, or mute. |
+| `seek` | A position in the track that plays, or a move from the current one. |
+| `set_playback_options` | Shuffle, Roon Radio after the queue, and the loop. |
+| `transfer_zone` | What plays in a zone, with its queue, to another zone. |
 | `get_image` | An image of Roon, such as a cover, from an `image_key` given by the other tools. |
 
 Zones are named by their id or their name.

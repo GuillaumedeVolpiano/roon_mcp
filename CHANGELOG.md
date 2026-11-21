@@ -2,6 +2,11 @@
 
 ## 0.1.0.1 -- unreleased
 
+* `browse_library` lists and searches the library; `play_item` plays what
+  it found, whole albums and playlists included.
+* `set_volume`, `seek`, `set_playback_options` and `transfer_zone`.
+* `list_zones` gives the outputs with their volume and the playback
+  options of each zone. Its `outputs` are now objects, no longer names.
 * Built on roon-api 0.1.0.1.
 
 ## 0.1.0.0 -- 2026-11-21
