@@ -54,8 +54,8 @@ queueing can be two calls.
 ## Building
 
 roon-mcp depends on roon-api, effectful-mcp, effectful-streamly,
-effectful-websockets, streamly-http and streamly-websockets, not yet on
-Hackage. `cabal.project` picks them up
+effectful-websockets, streamly-http, streamly-network-udp and
+streamly-websockets, not yet on Hackage. `cabal.project` picks them up
 when they are checked out next to this repository.
 
 Tested with GHC 9.12.4 and Roon Server 2.75.

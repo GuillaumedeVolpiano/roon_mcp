@@ -7,4 +7,5 @@ optional-packages:
   ../effectful-streamly
   ../effectful-websockets
   ../streamly-http
+  ../streamly-network-udp
   ../streamly-websockets
