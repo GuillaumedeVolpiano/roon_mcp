@@ -144,11 +144,13 @@ tools context =
         "queue_tracks"
         "Put tracks found by search_tracks in the queue of a zone, in the order given. Modes: \"queue\" adds them \
         \at the end of the queue; \"add_next\" right after the current track; \"play_now\" plays the first at once \
-        \and puts the others right after it. Reports each track; a failure does not stop the others."
+        \and puts the others right after it, but Roon's Play Now can replace the whole queue: prefer add_next \
+        \or queue unless the user wants the queue replaced. Reports each track; a failure does not stop the others."
         queueTracksSchema
         (withArguments (queueTracks context))
     )
-      {annotations = noAnnotations {readOnlyHint = Just False, destructiveHint = Just False, idempotentHint = Just False, openWorldHint = Just False}}
+      -- Destructive: in the play_now mode, Roon can replace the queue.
+      {annotations = noAnnotations {readOnlyHint = Just False, destructiveHint = Just True, idempotentHint = Just False, openWorldHint = Just False}}
   , ( tool
         "control"
         "Operate the playback of a zone: play, pause, playpause, stop, next or previous."
