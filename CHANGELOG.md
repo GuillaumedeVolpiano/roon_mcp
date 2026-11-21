@@ -1,5 +1,9 @@
 # Revision history for roon-mcp
 
+## 0.1.0.1 -- unreleased
+
+* Built on roon-api 0.1.0.1.
+
 ## 0.1.0.0 -- 2026-11-21
 
 * MCP server on stdio with the tools `list_zones`, `get_queue`,
