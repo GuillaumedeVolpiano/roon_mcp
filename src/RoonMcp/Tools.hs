@@ -7,6 +7,7 @@
 -- stored token, does its work and closes the connection: the server keeps
 -- no state. Connections are taken one at a time ('connectionLock'). Browsing sessions outlive connections on the Roon side, which
 -- is what lets a search and the queueing of its candidates be two calls.
+-- Images are the exception: they come over HTTP, without a connection.
 module RoonMcp.Tools
   ( Context (..)
   , extension
@@ -44,6 +45,7 @@ import Roon.Effect.Moo (Moo)
 import Roon.Effect.TokenStore (TokenStore, runTokenStoreFile)
 import Roon.Effect.WebSocket (ServerAddress (..), WebSocket, runWebSocket, traceFrames)
 import Roon.Error (RoonError (..))
+import Roon.Image (Image (..), fetchImage, fitWithin)
 import Roon.Registry (ExtensionInfo (..))
 import Roon.Transport
   ( Control (..)
@@ -100,7 +102,8 @@ instructions =
   \call search_tracks with one query per track, giving the title and the artist; choose among the \
   \candidates by their title and artists (search results give no album); then call queue_tracks \
   \with the chosen candidate ids, in order, and a mode. Candidate ids come from search_tracks: use \
-  \them soon after the search."
+  \them soon after the search. Zones, queue items and candidates may carry an image_key: get_image \
+  \returns that image, such as an album cover."
 
 type Effects es = (IOE :> es, Concurrent :> es, FileSystem :> es)
 
@@ -132,6 +135,7 @@ describeError context = \case
   TimedOut request -> "The Roon Server did not answer " <> request <> " in time."
   BrowseFailed message -> "Roon refused: " <> message
   BrowseItemMissing what -> "Roon did not offer " <> what <> "."
+  ImageFailed reason -> "Roon gave no image: " <> reason
   UnexpectedReply request status -> "Roon answered " <> request <> " with " <> status <> "."
   other -> Text.pack (show other)
 
@@ -167,6 +171,14 @@ tools context =
         (withArguments (controlZone context))
     )
       {annotations = noAnnotations {readOnlyHint = Just False, destructiveHint = Just False, openWorldHint = Just False}}
+  , ( tool
+        "get_image"
+        "Fetch an image of Roon, such as the cover of what plays, from an image_key given by list_zones, \
+        \get_queue or search_tracks. The image fits in a square of the size asked, in pixels."
+        imageSchema
+        (withArguments (getImage context))
+    )
+      {annotations = readOnly}
   ]
   where
     readOnly = noAnnotations {readOnlyHint = Just True, openWorldHint = Just False}
@@ -199,6 +211,7 @@ zoneSummary zone =
             , ("album" .=) <$> playing.threeLine.line3
             , ("seconds" .=) <$> playing.length
             , ("position" .=) <$> playing.seekPosition
+            , ("image_key" .=) <$> playing.imageKey
             ]
 
 stateName :: PlaybackState -> Text
@@ -230,7 +243,7 @@ getQueue context (QueueArguments wanted maxItems) =
     queueEntry item =
       object $
         ["queue_item_id" .= item.queueItemId, "title" .= item.threeLine.line1]
-          <> catMaybes [("artists" .=) <$> item.threeLine.line2, ("album" .=) <$> item.threeLine.line3, ("seconds" .=) <$> item.length]
+          <> catMaybes [("artists" .=) <$> item.threeLine.line2, ("album" .=) <$> item.threeLine.line3, ("seconds" .=) <$> item.length, ("image_key" .=) <$> item.imageKey]
 
 -- | Find the zone, then do the work; a zone that is not there gives an
 -- error result that lists the zones.
@@ -269,7 +282,7 @@ searchTracks context (SearchArguments queries maxCandidates)
       Left err -> object ["query" .= query, "error" .= describeError context err]
       Right candidates -> object ["query" .= query, "candidates" .= mapMaybe candidate candidates]
     candidate found =
-      (\identifier -> object (["candidate_id" .= identifier, "title" .= found.item.title] <> catMaybes [("artists" .=) <$> found.item.subtitle]))
+      (\identifier -> object (["candidate_id" .= identifier, "title" .= found.item.title] <> catMaybes [("artists" .=) <$> found.item.subtitle, ("image_key" .=) <$> found.item.imageKey]))
         <$> candidateId found
 
 -- queue_tracks
@@ -316,6 +329,24 @@ controlZone context (ControlArguments wanted actionName) = case lookup actionNam
   where
     controls = [("play", Play), ("pause", Pause), ("playpause", PlayPause), ("stop", Stop), ("next", Next), ("previous", Previous)]
 
+-- get_image
+
+data ImageArguments = ImageArguments Text Int
+
+instance FromJSON ImageArguments where
+  parseJSON = withObject "arguments" $ \fields ->
+    ImageArguments <$> fields .: "image_key" <*> fields .:? "size" .!= 300
+
+-- | Images come over HTTP, without a connection of the extension: no
+-- registration, and no need to wait for the calls that hold one.
+getImage :: Effects es => Context -> ImageArguments -> Eff es ToolResult
+getImage context (ImageArguments key size) =
+  runErrorNoCallStack (fetchImage context.address key (fitWithin (clamp 32 1024 size))) >>= \case
+    Left err -> pure (errorResult (describeError context err))
+    Right image -> pure $ case imageMediaType image.contentType of
+      Just mediaType -> imageResult mediaType image.bytes
+      Nothing -> errorResult ("Roon answered with \"" <> image.contentType <> "\", which is not an image.")
+
 -- Schemas
 
 noArguments :: Value
@@ -323,6 +354,19 @@ noArguments = object ["type" .= ("object" :: Text), "additionalProperties" .= Fa
 
 zoneProperty :: Value
 zoneProperty = object ["type" .= ("string" :: Text), "description" .= ("A zone id or name, from list_zones." :: Text)]
+
+imageSchema :: Value
+imageSchema =
+  object
+    [ "type" .= ("object" :: Text)
+    , "properties"
+        .= object
+          [ "image_key" .= object ["type" .= ("string" :: Text), "description" .= ("An image_key from list_zones, get_queue or search_tracks." :: Text)]
+          , "size" .= object ["type" .= ("integer" :: Text), "minimum" .= (32 :: Int), "maximum" .= (1024 :: Int), "default" .= (300 :: Int)]
+          ]
+    , "required" .= ["image_key" :: Text]
+    , "additionalProperties" .= False
+    ]
 
 queueSchema :: Value
 queueSchema =

@@ -16,6 +16,9 @@ module RoonMcp.Plan
   , modeName
   , parseMode
   , plan
+
+    -- * Images
+  , imageMediaType
   ) where
 
 import Data.Text (Text)
@@ -90,3 +93,12 @@ plan mode tracks = case mode of
     (index, first) : rest -> (index, PlayNow, first) : [(i, AddNext, track) | (i, track) <- reverse rest]
   where
     indexed = zip [0 ..] tracks
+
+-- | The media type of an image from a @Content-Type@: its parameters
+-- dropped, in lower case. 'Nothing' when it does not name an image.
+imageMediaType :: Text -> Maybe Text
+imageMediaType contentType
+  | "image/" `Text.isPrefixOf` mediaType && Text.length mediaType > 6 = Just mediaType
+  | otherwise = Nothing
+  where
+    mediaType = Text.toLower (Text.strip (Text.takeWhile (/= ';') contentType))

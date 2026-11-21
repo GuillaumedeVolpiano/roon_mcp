@@ -6,3 +6,4 @@ optional-packages:
   ../effectful-mcp
   ../effectful-streamly
   ../effectful-websockets
+  ../streamly-http

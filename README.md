@@ -20,6 +20,7 @@ speaks MCP revision 2026-07-28.
 | `search_tracks` | Several searches at once, one per track; candidates with an id, a title and artists. |
 | `queue_tracks` | Candidates into the queue of a zone, in order: at the end (`queue`, the default), after the current track (`add_next`), or in place of the queue, the first at once (`play_now`). Reports each track. |
 | `control` | Play, pause, stop, next, previous. |
+| `get_image` | An image of Roon, such as a cover, from an `image_key` given by the other tools. |
 
 Zones are named by their id or their name.
 

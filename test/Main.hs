@@ -51,15 +51,22 @@ tests =
         , testCase "an unknown zone lists the zones" $
             findZone "Garage" zones @?= Left "No zone named or identified as \"Garage\". Zones: Living Room (zone-0001), Kitchen (zone-0002)"
         ]
-    , testCase "tools/list gives the five tools, each with an object schema" $ do
+    , testGroup
+        "image media types"
+        [ testCase "parameters and case are dropped" $
+            map imageMediaType ["image/jpeg", "Image/PNG; q=1", " image/webp "] @?= [Just "image/jpeg", Just "image/png", Just "image/webp"]
+        , testCase "what is not an image is refused" $
+            map imageMediaType ["", "text/plain", "image/", "application/json"] @?= [Nothing, Nothing, Nothing, Nothing]
+        ]
+    , testCase "tools/list gives the six tools, each with an object schema" $ do
         lock <- newMVar ()
         let context = Context {address = localServer, tokenFile = "/nonexistent/tokens.json", registrationTimeout = 1, traceLimit = Nothing, connectionLock = lock}
         result <- runEff . runConcurrent . runFileSystem $
           handleRequest (serverConfig (implementation "roon-mcp" "0") (tools context)) "tools/list" (KeyMap.fromList [("_meta", meta)])
         case result of
           Right (Object fields) | Just (Array listed) <- KeyMap.lookup "tools" fields -> do
-            map (field "name") (toList listed) @?= map (Just . String) ["list_zones", "get_queue", "search_tracks", "queue_tracks", "control"]
-            map (\definition -> field "inputSchema" definition >>= field "type") (toList listed) @?= replicate 5 (Just (String "object"))
+            map (field "name") (toList listed) @?= map (Just . String) ["list_zones", "get_queue", "search_tracks", "queue_tracks", "control", "get_image"]
+            map (\definition -> field "inputSchema" definition >>= field "type") (toList listed) @?= replicate 6 (Just (String "object"))
           other -> assertFailure ("unexpected: " <> show other)
     ]
   where
