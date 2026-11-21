@@ -1,6 +1,6 @@
 # Revision history for roon-mcp
 
-## 0.2.0.1 -- unreleased
+## 0.2.0.1 -- 2026-11-21
 
 * `play_item` plays an album found by a search (fixed in roon-api
   0.2.0.1).
