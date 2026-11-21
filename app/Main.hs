@@ -45,7 +45,7 @@ program = do
       pure True
     ["register"] -> register context
     _ -> do
-      complain "usage: roon-mcp [register]   (ROON_HOST and ROON_PORT choose the server; default 127.0.0.1:9330)"
+      complain "usage: roon-mcp [register]   (ROON_HOST and ROON_PORT choose the server, default 127.0.0.1:9330; ROON_TRACE=1 describes every frame on stderr)"
       pure False
 
 -- | The server address from ROON_HOST and ROON_PORT, and the token file.
@@ -55,11 +55,14 @@ configure = do
   port <- (>>= readMaybe) <$> lookupEnv "ROON_PORT"
   tokenFile <- defaultTokenFile extension.extensionId
   connectionLock <- newMVar ()
+  -- ROON_TRACE, when set, describes every frame on stderr.
+  tracing <- maybe False (not . null) <$> lookupEnv "ROON_TRACE"
   pure
     Context
       { address = ServerAddress {host, port = maybe localServer.port id port}
       , tokenFile
       , registrationTimeout = 5_000_000
+      , traceLimit = if tracing then Just 300 else Nothing
       , connectionLock
       }
 

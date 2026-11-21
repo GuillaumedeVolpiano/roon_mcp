@@ -5,3 +5,4 @@
 * MCP server on stdio with the tools `list_zones`, `get_queue`,
   `search_tracks`, `queue_tracks` and `control`.
 * `roon-mcp register` to enable the extension once.
+* `ROON_TRACE` describes every frame exchanged with Roon on stderr.

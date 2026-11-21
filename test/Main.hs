@@ -53,7 +53,7 @@ tests =
         ]
     , testCase "tools/list gives the five tools, each with an object schema" $ do
         lock <- newMVar ()
-        let context = Context {address = localServer, tokenFile = "/nonexistent/tokens.json", registrationTimeout = 1, connectionLock = lock}
+        let context = Context {address = localServer, tokenFile = "/nonexistent/tokens.json", registrationTimeout = 1, traceLimit = Nothing, connectionLock = lock}
         result <- runEff . runConcurrent . runFileSystem $
           handleRequest (serverConfig (implementation "roon-mcp" "0") (tools context)) "tools/list" (KeyMap.fromList [("_meta", meta)])
         case result of

@@ -25,7 +25,10 @@ import Effectful
 import Effectful.Concurrent (Concurrent)
 import Effectful.Concurrent.MVar (MVar, withMVar)
 import Effectful.Error.Static (Error, runErrorNoCallStack)
+import Data.Text.Encoding (encodeUtf8)
 import Effectful.FileSystem (FileSystem)
+import Effectful.FileSystem.IO (stderr)
+import Effectful.FileSystem.IO.ByteString (hPutStrLn)
 import Effectful.MCP.Tool
 import Roon.Browse
   ( Candidate (..)
@@ -36,10 +39,10 @@ import Roon.Browse
   , searchTracksConcurrently
   , trackActionTitle
   )
-import Roon.Connection (withRoonWithin)
+import Roon.Connection (runRoonWithin)
 import Roon.Effect.Moo (Moo)
 import Roon.Effect.TokenStore (TokenStore, runTokenStoreFile)
-import Roon.Effect.WebSocket (ServerAddress (..), WebSocket)
+import Roon.Effect.WebSocket (ServerAddress (..), WebSocket, runWebSocket, traceFrames)
 import Roon.Error (RoonError (..))
 import Roon.Registry (ExtensionInfo (..))
 import Roon.Transport
@@ -67,6 +70,9 @@ data Context = Context
   , registrationTimeout :: Int
   -- ^ Microseconds to wait for the registration; the extension must have
   -- been enabled beforehand.
+  , traceLimit :: Maybe Int
+  -- ^ When set, every frame is described on stderr, its body cut to this
+  -- many characters.
   , connectionLock :: MVar ()
   -- ^ Taken for each connection. Roon keeps one connection per extension:
   -- when a second one registers, it sends an empty frame to the first,
@@ -106,7 +112,10 @@ withConnection
   -> Eff es (Either RoonError a)
 withConnection context work =
   withMVar context.connectionLock . const . runErrorNoCallStack . runTokenStoreFile context.tokenFile $
-    withRoonWithin (Just context.registrationTimeout) context.address extension (const work)
+    runWebSocket context.address . trace $
+      runRoonWithin (Just context.registrationTimeout) extension (const work)
+  where
+    trace = maybe id (\limit -> traceFrames limit (hPutStrLn stderr . encodeUtf8)) context.traceLimit
 
 -- | Run Roon work and turn a failure into a result the model can read.
 roon :: Effects es => Context -> (a -> ToolResult) -> Eff (Moo : WebSocket : TokenStore : Error RoonError : es) a -> Eff es ToolResult
