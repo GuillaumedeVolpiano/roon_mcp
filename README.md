@@ -18,7 +18,7 @@ speaks MCP revision 2026-07-28.
 | `list_zones` | The zones, what plays in each, and what each allows. |
 | `get_queue` | The next items of the queue of a zone. |
 | `search_tracks` | Several searches at once, one per track; candidates with an id, a title and artists. |
-| `queue_tracks` | Candidates into the queue of a zone, in order: at the end (`queue`), after the current track (`add_next`), or the first at once and the others after it (`play_now`). Reports each track. With Roon Server 2.75, Play Now replaced the whole queue. |
+| `queue_tracks` | Candidates into the queue of a zone, in order: at the end (`queue`, the default), after the current track (`add_next`), or in place of the queue, the first at once (`play_now`). Reports each track. |
 | `control` | Play, pause, stop, next, previous. |
 
 Zones are named by their id or their name.

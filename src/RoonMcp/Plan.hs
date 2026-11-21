@@ -64,7 +64,8 @@ data Mode
     ModeQueue
   | -- | Right after the current track, in order.
     ModeAddNext
-  | -- | The first track at once, the others right after it, in order.
+  | -- | In place of the queue: the first track at once, the others right
+    -- after it, in order.
     ModePlayNow
   deriving stock (Eq, Show, Enum, Bounded)
 

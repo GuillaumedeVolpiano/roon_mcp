@@ -143,13 +143,13 @@ tools context =
   , ( tool
         "queue_tracks"
         "Put tracks found by search_tracks in the queue of a zone, in the order given. Modes: \"queue\" adds them \
-        \at the end of the queue; \"add_next\" right after the current track; \"play_now\" plays the first at once \
-        \and puts the others right after it, but Roon's Play Now can replace the whole queue: prefer add_next \
-        \or queue unless the user wants the queue replaced. Reports each track; a failure does not stop the others."
+        \at the end of the queue; \"add_next\" right after the current track; \"play_now\" replaces the queue with \
+        \these tracks and plays the first at once. Prefer add_next or queue unless the user wants the queue \
+        \replaced. Reports each track; a failure does not stop the others."
         queueTracksSchema
         (withArguments (queueTracks context))
     )
-      -- Destructive: in the play_now mode, Roon can replace the queue.
+      -- Destructive: the play_now mode replaces the queue.
       {annotations = noAnnotations {readOnlyHint = Just False, destructiveHint = Just True, idempotentHint = Just False, openWorldHint = Just False}}
   , ( tool
         "control"
