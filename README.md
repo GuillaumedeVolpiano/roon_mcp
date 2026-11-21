@@ -60,6 +60,7 @@ queueing can be two calls.
 ## Building
 
 roon-mcp depends on roon-api, effectful-mcp, effectful-streamly,
+effectful-streamly-http,
 effectful-websockets, streamly-http, streamly-network-udp and
 streamly-websockets, not yet on Hackage. `cabal.project` fetches them
 from GitHub, at their releases. To build against copies checked out next to

@@ -7,6 +7,7 @@ optional-packages:
   ../roon-api
   ../effectful-mcp
   ../effectful-streamly
+  ../effectful-streamly-http
   ../effectful-websockets
   ../streamly-http
   ../streamly-network-udp

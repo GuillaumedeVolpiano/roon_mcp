@@ -55,7 +55,7 @@ import Roon.Effect.Moo (Moo)
 import Roon.Effect.TokenStore (TokenStore, runTokenStoreFile)
 import Roon.Effect.WebSocket (ServerAddress (..), WebSocket, runWebSocket, traceFrames)
 import Roon.Error (RoonError (..))
-import Roon.Image (Image (..), fetchImage, fitWithin)
+import Roon.Image (Image (..), defaultImageLimits, fetchImage, fitWithin, runImageHttp)
 import Roon.Registry (ExtensionInfo (..))
 import Roon.Transport
   ( Control (..)
@@ -636,7 +636,7 @@ instance FromJSON ImageArguments where
 -- registration, and no need to wait for the calls that hold one.
 getImage :: Effects es => Context -> ImageArguments -> Eff es ToolResult
 getImage context (ImageArguments key size) =
-  runErrorNoCallStack (fetchImage context.address key (fitWithin (clamp 32 1024 size))) >>= \case
+  runErrorNoCallStack (runImageHttp defaultImageLimits (fetchImage context.address key (fitWithin (clamp 32 1024 size)))) >>= \case
     Left err -> pure (errorResult (describeError context err))
     Right image -> pure $ case imageMediaType image.contentType of
       Just mediaType -> imageResult mediaType image.bytes
