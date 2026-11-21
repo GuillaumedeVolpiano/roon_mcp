@@ -13,3 +13,4 @@ optional-packages:
   ../streamly-network-udp
   ../streamly-websockets
   ../streamly-network-tcp
+  ../streamly-flatparse
