@@ -1,6 +1,6 @@
 cabal-version:   3.12
 name:            roon-mcp
-version:         0.2.0.2
+version:         0.2.0.3
 synopsis:        An MCP server that plays music on Roon
 description:
   A Model Context Protocol server, over stdio, that lets an assistant list
@@ -50,7 +50,7 @@ library
     , base           ^>=4.21
     , effectful      ^>=2.7
     , effectful-core ^>=2.7.1
-    , effectful-mcp  ^>=0.1
+    , effectful-mcp  ^>=0.1.1
     , roon-api       ^>=0.2.0.2
     , streamly-core  ^>=0.3.3
     , text           ^>=2.1
@@ -64,7 +64,7 @@ executable roon-mcp
   build-depends:
     , base          ^>=4.21
     , effectful     ^>=2.7
-    , effectful-mcp ^>=0.1
+    , effectful-mcp ^>=0.1.1
     , roon-api      ^>=0.2.0.2
     , roon-mcp
     , text          ^>=2.1
@@ -80,7 +80,7 @@ test-suite roon-mcp-test
     , base           ^>=4.21
     , effectful      ^>=2.7
     , effectful-core ^>=2.7.1
-    , effectful-mcp  ^>=0.1
+    , effectful-mcp  ^>=0.1.1
     , roon-api       ^>=0.2.0.2
     , roon-mcp
     , tasty          ^>=1.5

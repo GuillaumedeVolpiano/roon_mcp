@@ -9,7 +9,8 @@ This is an independent, unofficial project, not affiliated with or endorsed
 by Roon Labs. It is built on
 [roon-api](https://github.com/GuillaumedeVolpiano/roon-api) and
 [effectful-mcp](https://github.com/GuillaumedeVolpiano/effectful-mcp), and
-speaks MCP revision 2026-07-28.
+speaks MCP revision 2026-07-28, and the earlier revisions to the clients
+that only know them.
 
 ## Tools
 
