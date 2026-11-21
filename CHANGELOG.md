@@ -1,6 +1,6 @@
 # Revision history for roon-mcp
 
-## 0.2.0.3 -- unreleased
+## 0.2.0.3 -- 2026-11-21
 
 * The server also answers the clients of the earlier MCP revisions, such
   as the Claude desktop application (effectful-mcp 0.1.1.0).
