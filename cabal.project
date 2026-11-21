@@ -7,3 +7,4 @@ optional-packages:
   ../effectful-streamly
   ../effectful-websockets
   ../streamly-http
+  ../streamly-websockets
