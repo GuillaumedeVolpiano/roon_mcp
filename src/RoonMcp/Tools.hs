@@ -128,6 +128,7 @@ extension =
     , providedServices = []
     }
 
+-- | What the server tells the model about how to use its tools.
 instructions :: Text
 instructions =
   "Plays music on the Roon system of this machine. To play tracks: call list_zones to pick a zone; \
@@ -158,6 +159,7 @@ withConnection context work =
 roon :: Effects es => Context -> (a -> ToolResult) -> Eff (Moo : WebSocket : TokenStore : Error RoonError : es) a -> Eff es ToolResult
 roon context toResult work = either (errorResult . describeError context) toResult <$> withConnection context work
 
+-- | An error of Roon as a text the model can act on.
 describeError :: Context -> RoonError -> Text
 describeError context = \case
   TimedOut "com.roonlabs.registry:1/register" ->
@@ -174,6 +176,7 @@ describeError context = \case
   UnexpectedReply request status -> "Roon answered " <> request <> " with " <> status <> "."
   other -> Text.pack (show other)
 
+-- | The tools of the server, in the order they are listed.
 tools :: Effects es => Context -> [Tool es]
 tools context =
   [ (tool "list_zones" "List the zones of Roon: where music plays, what plays there, and what it allows." noArguments (\_ -> listZones context))

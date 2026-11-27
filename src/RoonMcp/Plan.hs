@@ -90,12 +90,14 @@ data Mode
     ModePlayNow
   deriving stock (Eq, Show, Enum, Bounded)
 
+-- | The name of a mode in the arguments of a tool.
 modeName :: Mode -> Text
 modeName = \case
   ModeQueue -> "queue"
   ModeAddNext -> "add_next"
   ModePlayNow -> "play_now"
 
+-- | The mode a name stands for.
 parseMode :: Text -> Maybe Mode
 parseMode name = lookup name [(modeName mode, mode) | mode <- [minBound .. maxBound]]
 
@@ -133,6 +135,7 @@ data ItemKind
     KindOther
   deriving stock (Eq, Show, Enum, Bounded)
 
+-- | The kind of an item, from its hint.
 itemKind :: Item -> ItemKind
 itemKind item = case item.hint of
   Just ListItem -> KindList
@@ -140,6 +143,7 @@ itemKind item = case item.hint of
   Just Action -> KindAction
   _ -> KindOther
 
+-- | The name of a kind in the results of a tool.
 kindName :: ItemKind -> Text
 kindName = \case
   KindList -> "list"
@@ -180,6 +184,7 @@ itemId Session {hierarchy, multiSessionKey = Just sessionKey} item@Item {itemKey
       Just (Text.intercalate "|" [name, sessionKey, kindLetter (itemKind item), key])
 itemId _ _ = Nothing
 
+-- | The item an id names; 'Nothing' when the text is not an id.
 decodeItemId :: Text -> Maybe ItemRef
 decodeItemId text = case Text.splitOn "|" text of
   [name, sessionKey, letter, key]
@@ -203,6 +208,7 @@ plainText text = case Text.breakOn "[[" text of
 data PlayAction = ActPlayNow | ActAddNext | ActQueue | ActStartRadio | ActShuffle
   deriving stock (Eq, Show, Enum, Bounded)
 
+-- | The name of an action in the arguments of a tool.
 playActionName :: PlayAction -> Text
 playActionName = \case
   ActPlayNow -> "play_now"
@@ -220,6 +226,7 @@ playActionTitle = \case
   ActStartRadio -> "Start Radio"
   ActShuffle -> "Shuffle"
 
+-- | The action a name stands for.
 parsePlayAction :: Text -> Maybe PlayAction
 parsePlayAction name = lookup name [(playActionName action, action) | action <- [minBound .. maxBound]]
 
