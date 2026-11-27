@@ -1,6 +1,6 @@
 cabal-version:   3.12
 name:            roon-mcp
-version:         0.2.0.3
+version:         0.2.1.0
 synopsis:        An MCP server that plays music on Roon
 description:
   A Model Context Protocol server, over stdio, that lets an assistant list
