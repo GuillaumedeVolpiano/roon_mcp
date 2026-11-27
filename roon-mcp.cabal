@@ -70,12 +70,12 @@ executable roon-mcp
   main-is:        Main.hs
   ghc-options:    -threaded
   build-depends:
-    , base          >=4.19 && <4.22
-    , effectful     ^>=2.7
-    , effectful-mcp ^>=0.1.1
-    , roon-api      ^>=0.2.0.2
+    , base
+    , effectful
+    , effectful-mcp
+    , roon-api
     , roon-mcp
-    , text          ^>=2.1
+    , text
 
 test-suite roon-mcp-test
   import:         shared
@@ -84,13 +84,13 @@ test-suite roon-mcp-test
   main-is:        Main.hs
   ghc-options:    -threaded
   build-depends:
-    , aeson          ^>=2.3
-    , base           >=4.19 && <4.22
-    , effectful      ^>=2.7
-    , effectful-core ^>=2.7.1
-    , effectful-mcp  ^>=0.1.1
-    , roon-api       ^>=0.2.0.2
+    , aeson
+    , base
+    , effectful
+    , effectful-core
+    , effectful-mcp
+    , roon-api
     , roon-mcp
     , tasty          ^>=1.5
     , tasty-hunit    ^>=0.10
-    , text           ^>=2.1
+    , text
