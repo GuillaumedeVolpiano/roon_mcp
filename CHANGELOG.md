@@ -1,5 +1,10 @@
 # Revision history for roon-mcp
 
+## 0.2.1.1 -- 2026-11-27
+
+* No change of interface. The dependency bounds are stated once in the
+  cabal file, and the imports list the names they use.
+
 ## 0.2.1.0 -- 2026-11-27
 
 * Builds with GHC 9.8 and 9.10 as well as 9.12: the language is GHC2021
