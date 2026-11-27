@@ -12,6 +12,7 @@ module RoonMcp.Tools
   ( Context (..)
   , extension
   , serverVersion
+  , Effects
   , tools
   , instructions
   , describeError
@@ -140,6 +141,8 @@ instructions =
   \browse_library lists or searches the library and play_item plays what it found. set_volume, seek, \
   \set_playback_options and transfer_zone act on a zone."
 
+-- | What the tools need: input and output, threads, and the files where
+-- the token is kept.
 type Effects es = (IOE :> es, Concurrent :> es, FileSystem :> es)
 
 -- | Run Roon work over a connection of its own.
