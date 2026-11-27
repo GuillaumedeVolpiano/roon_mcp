@@ -2,17 +2,27 @@ module Main (main) where
 
 import Control.Concurrent.MVar (newMVar)
 import Data.Aeson (Value (..), object, (.=))
-import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Aeson.KeyMap (fromList)
+import Data.Aeson.KeyMap qualified as JK (lookup)
 import Data.Foldable (toList)
 import Data.Text (Text)
-import Effectful
+import Effectful (runEff)
 import Effectful.Concurrent (runConcurrent)
 import Effectful.FileSystem (runFileSystem)
 import Effectful.MCP.Server (handleRequest, implementation, serverConfig)
-import Roon.Browse (Candidate (..), Hierarchy (..), Item (..), ItemHint (..), Session (..), TrackAction (..))
+import Roon.Browse (Candidate (..), Hierarchy (..), Item (..), ItemHint (..),
+                    Session (..), TrackAction (..))
 import Roon.Effect.WebSocket (localServer)
-import Roon.Transport (Output (..), OutputId (..), PlaybackState (..), Volume (..), VolumeType (..), Zone (..), ZoneId (..))
-import RoonMcp.Plan
+import Roon.Transport (Output (..), OutputId (..), PlaybackState (..),
+                       Volume (..), VolumeType (..), Zone (..), ZoneId (..))
+import RoonMcp.Plan (ItemKind (KindList, KindPlayable),
+                     ItemRef (ItemRef, key, kind, session),
+                     Mode (ModeAddNext, ModePlayNow, ModeQueue),
+                     PlayAction (ActAddNext, ActPlayNow, ActQueue, ActShuffle, ActStartRadio),
+                     candidateId, decodeCandidateId, decodeItemId, findZone,
+                     imageMediaType, itemId, outputsFor, parseMode,
+                     parsePlayAction, plainText, plan, playActionTitle,
+                     volumeWithin)
 import RoonMcp.Tools (Context (..), tools)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
@@ -107,9 +117,9 @@ tests =
         lock <- newMVar ()
         let context = Context {address = localServer, tokenFile = "/nonexistent/tokens.json", registrationTimeout = 1, traceLimit = Nothing, connectionLock = lock}
         result <- runEff . runConcurrent . runFileSystem $
-          handleRequest (serverConfig (implementation "roon-mcp" "0") (tools context)) "tools/list" (KeyMap.fromList [("_meta", meta)])
+          handleRequest (serverConfig (implementation "roon-mcp" "0") (tools context)) "tools/list" (fromList [("_meta", meta)])
         case result of
-          Right (Object fields) | Just (Array listed) <- KeyMap.lookup "tools" fields -> do
+          Right (Object fields) | Just (Array listed) <- JK.lookup "tools" fields -> do
             map (field "name") (toList listed) @?= map (Just . String) ["list_zones", "get_queue", "search_tracks", "queue_tracks", "control", "browse_library", "play_item", "set_volume", "seek", "set_playback_options", "transfer_zone", "get_image"]
             map (\definition -> field "inputSchema" definition >>= field "type") (toList listed) @?= replicate 12 (Just (String "object"))
           other -> assertFailure ("unexpected: " <> show other)
@@ -117,7 +127,7 @@ tests =
   where
     meta = object ["io.modelcontextprotocol/protocolVersion" .= ("2026-07-28" :: Text), "io.modelcontextprotocol/clientCapabilities" .= object []]
     field key = \case
-      Object fields -> KeyMap.lookup key fields
+      Object fields -> JK.lookup key fields
       _ -> Nothing
 
 trackItem :: Text -> Text -> Item

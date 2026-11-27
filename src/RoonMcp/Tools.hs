@@ -18,80 +18,59 @@ module RoonMcp.Tools
   , describeError
   ) where
 
-import Data.Aeson (FromJSON (..), Value, object, withObject, (.:), (.:?), (.!=), (.=))
+import Data.Aeson (FromJSON (..), Value, object, withObject, (.!=), (.:), (.:?),
+                   (.=))
 import Data.List (sortOn)
 import Data.Maybe (catMaybes, mapMaybe)
-import Data.Text (Text)
-import Data.Text qualified as Text
+import Data.Text (Text, intercalate, pack, strip)
+import Data.Text qualified as T (null)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Version (showVersion)
-import Effectful
+import Effectful (Eff, IOE, MonadIO (liftIO), type (:>))
 import Effectful.Concurrent (Concurrent)
 import Effectful.Concurrent.MVar (MVar, withMVar)
 import Effectful.Error.Static (Error, runErrorNoCallStack, throwError)
-import Data.Text.Encoding (encodeUtf8)
 import Effectful.FileSystem (FileSystem)
 import Effectful.FileSystem.IO (stderr)
 import Effectful.FileSystem.IO.ByteString (hPutStrLn)
-import Effectful.MCP.Tool
-import Roon.Browse
-  ( BrowseResult (..)
-  , Candidate (..)
-  , Hierarchy (..)
-  , Item (..)
-  , List (..)
-  , ListHint (..)
-  , LoadResult (..)
-  , Navigation (..)
-  , SearchOptions (..)
-  , Session (..)
-  , browse
-  , defaultSearchOptions
-  , load
-  , performAction
-  , performTrackAction
-  , searchTracksConcurrently
-  , trackActionTitle
-  )
+import Effectful.MCP.Tool (Tool (annotations),
+                           ToolAnnotations (destructiveHint, idempotentHint, openWorldHint, readOnlyHint),
+                           ToolResult (isError), errorResult, imageResult,
+                           noAnnotations, structuredResult, textResult, tool,
+                           withArguments)
+import Paths_roon_mcp (version)
+import Roon.Browse (BrowseResult (..), Candidate (..), Hierarchy (..),
+                    Item (..), List (..), ListHint (..), LoadResult (..),
+                    Navigation (..), SearchOptions (..), Session (..), browse,
+                    defaultSearchOptions, load, performAction,
+                    performTrackAction, searchTracksConcurrently,
+                    trackActionTitle)
 import Roon.Connection (runRoonWithin)
 import Roon.Effect.Moo (Moo)
 import Roon.Effect.TokenStore (TokenStore, runTokenStoreFile)
-import Roon.Effect.WebSocket (ServerAddress (..), WebSocket, runWebSocket, traceFrames)
+import Roon.Effect.WebSocket (ServerAddress (..), WebSocket, runWebSocket,
+                              traceFrames)
 import Roon.Error (RoonError (..))
-import Roon.Image (Image (..), defaultImageLimits, fetchImage, fitWithin, runImageHttp)
+import Roon.Image (Image (..), defaultImageLimits, fetchImage, fitWithin,
+                   runImageHttp)
 import Roon.Registry (ExtensionInfo (..))
-import Roon.Transport
-  ( Control (..)
-  , DisplayLines (..)
-  , Loop (..)
-  , LoopChange (..)
-  , NowPlaying (..)
-  , Output (..)
-  , OutputId (..)
-  , PlaybackState (..)
-  , QueueEvent (..)
-  , QueueItem (..)
-  , Seek (..)
-  , SettingsChange (..)
-  , Volume (..)
-  , VolumeChange (..)
-  , VolumeType (..)
-  , Zone (..)
-  , ZoneId (..)
-  , ZoneSettings (..)
-  , changeSettings
-  , changeVolume
-  , control
-  , getZones
-  , mute
-  , seek
-  , subscribeQueue
-  , transferZone
-  )
-import Paths_roon_mcp (version)
-import RoonMcp.Plan
-import Streamly.Data.Fold qualified as Fold
-import Streamly.Data.Stream qualified as Stream
+import Roon.Transport (Control (..), DisplayLines (..), Loop (..),
+                       LoopChange (..), NowPlaying (..), Output (..),
+                       OutputId (..), PlaybackState (..), QueueEvent (..),
+                       QueueItem (..), Seek (..), SettingsChange (..),
+                       Volume (..), VolumeChange (..), VolumeType (..),
+                       Zone (..), ZoneId (..), ZoneSettings (..),
+                       changeSettings, changeVolume, control, getZones, mute,
+                       seek, subscribeQueue, transferZone)
+import RoonMcp.Plan (ItemKind (KindAction, KindOther),
+                     ItemRef (ItemRef, key, kind, session), candidateId,
+                     decodeCandidateId, decodeItemId, findZone, imageMediaType,
+                     itemId, itemKind, kindName, libraryHierarchies, modeName,
+                     outputsFor, parseMode, parsePlayAction, plainText, plan,
+                     playActionName, playActionTitle, volumeWithin)
+import Streamly.Data.Fold (one)
+import Streamly.Data.Stream (fold)
 
 -- | What every call needs.
 data Context = Context
@@ -112,7 +91,7 @@ data Context = Context
 -- | The version of this package, as the server gives it to Roon and to
 -- MCP clients.
 serverVersion :: Text
-serverVersion = Text.pack (showVersion version)
+serverVersion = pack (showVersion version)
 
 -- | How the server introduces itself to Roon.
 extension :: ExtensionInfo
@@ -169,7 +148,7 @@ describeError context = \case
     "The extension \"roon-mcp\" is not enabled in Roon. Ask the user to run `roon-mcp register` in a terminal \
     \and to enable \"roon-mcp\" in Roon, under Settings, Extensions; then call again."
   ConnectFailed cause ->
-    "Cannot reach the Roon Server at " <> Text.pack context.address.host <> ":" <> Text.pack (show context.address.port) <> ": " <> cause
+    "Cannot reach the Roon Server at " <> pack context.address.host <> ":" <> pack (show context.address.port) <> ": " <> cause
   ConnectionLost -> "The connection to the Roon Server was lost; call again."
   TimedOut request -> "The Roon Server did not answer " <> request <> " in time."
   BrowseFailed message -> "Roon refused: " <> message
@@ -177,7 +156,7 @@ describeError context = \case
   ImageFailed reason -> "Roon gave no image: " <> reason
   UnexpectedReply _ "InvalidItemKey" -> "This id is no longer valid: call browse_library or search_tracks again for fresh ids."
   UnexpectedReply request status -> "Roon answered " <> request <> " with " <> status <> "."
-  other -> Text.pack (show other)
+  other -> pack (show other)
 
 -- | The tools of the server, in the order they are listed.
 tools :: Effects es => Context -> [Tool es]
@@ -368,7 +347,7 @@ instance FromJSON QueueArguments where
 getQueue :: Effects es => Context -> QueueArguments -> Eff es ToolResult
 getQueue context (QueueArguments wanted maxItems) =
   withZone context wanted $ \zone ->
-    subscribeQueue zone.zoneId (clamp 1 100 maxItems) (Stream.fold Fold.one) >>= \case
+    subscribeQueue zone.zoneId (clamp 1 100 maxItems) (fold one) >>= \case
       Just (QueueSubscribed items) -> pure (structuredResult (object ["items" .= map queueEntry items]))
       _ -> pure (errorResult "Roon gave no queue.")
   where
@@ -405,7 +384,7 @@ searchTracks context (SearchArguments queries maxCandidates)
       -- Sessions of their own, so that this search does not move those of
       -- earlier ones, whose candidates may still be queued.
       stamp <- liftIO getPOSIXTime
-      let prefix = "roon-mcp-" <> Text.pack (show (floor (stamp * 1_000_000) :: Integer)) <> "-"
+      let prefix = "roon-mcp-" <> pack (show (floor (stamp * 1_000_000) :: Integer)) <> "-"
           options = defaultSearchOptions {maxCandidates = clamp 1 20 maxCandidates}
       roon context (structuredResult . object . pure . ("results" .=) . map result) $
         searchTracksConcurrently options prefix queries
@@ -456,7 +435,7 @@ instance FromJSON ControlArguments where
 
 controlZone :: Effects es => Context -> ControlArguments -> Eff es ToolResult
 controlZone context (ControlArguments wanted actionName) = case lookup actionName controls of
-  Nothing -> pure (errorResult ("Unknown action \"" <> actionName <> "\": use " <> Text.intercalate ", " (map fst controls) <> "."))
+  Nothing -> pure (errorResult ("Unknown action \"" <> actionName <> "\": use " <> intercalate ", " (map fst controls) <> "."))
   Just which -> withZone context wanted $ \zone -> textResult ("Done: " <> actionName <> " on " <> zone.displayName <> ".") <$ control zone.zoneId which
   where
     controls = [("play", Play), ("pause", Pause), ("playpause", PlayPause), ("stop", Stop), ("next", Next), ("previous", Previous)]
@@ -479,13 +458,13 @@ browseLibrary context (BrowseArguments hierarchyName searchText itemText offset 
   stamp <- liftIO getPOSIXTime
   -- A session of its own for each listing started here, so that it does
   -- not move those of earlier ones, whose ids may still be used.
-  let fresh hierarchy = Session {hierarchy, multiSessionKey = Just ("roon-mcp-b-" <> Text.pack (show (floor (stamp * 1_000_000) :: Integer)))}
+  let fresh hierarchy = Session {hierarchy, multiSessionKey = Just ("roon-mcp-b-" <> pack (show (floor (stamp * 1_000_000) :: Integer)))}
   case (hierarchyName, searchText, itemText) of
     (Just name, Nothing, Nothing) -> case lookup name [(found, hierarchy) | (found, hierarchy) <- libraryHierarchies, hierarchy /= Search] of
       Just hierarchy -> open (fresh hierarchy) (Top Nothing)
-      Nothing -> pure (errorResult ("Unknown hierarchy \"" <> name <> "\": use " <> Text.intercalate ", " browsable <> "."))
+      Nothing -> pure (errorResult ("Unknown hierarchy \"" <> name <> "\": use " <> intercalate ", " browsable <> "."))
     (Nothing, Just text, Nothing)
-      | Text.null (Text.strip text) -> pure (errorResult "Give a text to search for.")
+      | T.null (strip text) -> pure (errorResult "Give a text to search for.")
       | otherwise -> open (fresh Search) (Top (Just text))
     (Nothing, Nothing, Just identifier) -> case decodeItemId identifier of
       Nothing -> pure (errorResult "Not an item_id from browse_library.")
@@ -539,7 +518,7 @@ instance FromJSON PlayItemArguments where
 
 playItem :: Effects es => Context -> PlayItemArguments -> Eff es ToolResult
 playItem context (PlayItemArguments wanted identifier actionName) = case (parsePlayAction actionName, target) of
-  (Nothing, _) -> pure (errorResult ("Unknown action \"" <> actionName <> "\": use " <> Text.intercalate ", " (map playActionName [minBound .. maxBound]) <> "."))
+  (Nothing, _) -> pure (errorResult ("Unknown action \"" <> actionName <> "\": use " <> intercalate ", " (map playActionName [minBound .. maxBound]) <> "."))
   (_, Left problem) -> pure (errorResult problem)
   (Just action, Right candidate) -> withZone context wanted $ \zone ->
     textResult ("Done: " <> playActionTitle action <> " in " <> zone.displayName <> ".")
@@ -599,7 +578,7 @@ seekZone context (SeekArguments wanted seconds relative) = withZone context want
   if not zone.isSeekAllowed
     then pure (errorResult ("Seeking is not allowed in " <> zone.displayName <> " at the moment."))
     else
-      textResult ("Done: " <> (if relative then "moved by " else "moved to ") <> Text.pack (show seconds) <> " seconds in " <> zone.displayName <> ".")
+      textResult ("Done: " <> (if relative then "moved by " else "moved to ") <> pack (show seconds) <> " seconds in " <> zone.displayName <> ".")
         <$ seek zone.zoneId (if relative then SeekBy seconds else SeekTo (max 0 seconds))
 
 -- set_playback_options

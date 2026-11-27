@@ -39,10 +39,13 @@ module RoonMcp.Plan
   , imageMediaType
   ) where
 
-import Data.Text (Text)
-import Data.Text qualified as Text
-import Roon.Browse (Candidate (..), Hierarchy (..), Item (..), ItemHint (..), Session (..), TrackAction (..))
-import Roon.Transport (Output (..), OutputId (..), Volume (..), Zone (..), ZoneId (..))
+import Data.Text (Text, breakOn, breakOnEnd, intercalate, isPrefixOf, splitOn,
+                  strip, stripPrefix, toCaseFold, toLower)
+import Data.Text qualified as T (drop, length, null, take, takeWhile)
+import Roon.Browse (Candidate (..), Hierarchy (..), Item (..), ItemHint (..),
+                    Session (..), TrackAction (..))
+import Roon.Transport (Output (..), OutputId (..), Volume (..), Zone (..),
+                       ZoneId (..))
 
 -- | An id that carries all a later call needs: the browsing session and
 -- the key of the item in it. The server keeps nothing between calls.
@@ -54,11 +57,11 @@ candidateId _ = Nothing
 -- | The candidate an id stands for. Its title is the id itself, since the
 -- id does not carry the title.
 decodeCandidateId :: Text -> Maybe Candidate
-decodeCandidateId text = case Text.breakOn "|" text of
+decodeCandidateId text = case breakOn "|" text of
   (key, rest)
-    | not (Text.null key)
-    , Just itemKey <- Text.stripPrefix "|" rest
-    , not (Text.null itemKey) ->
+    | not (T.null key)
+    , Just itemKey <- stripPrefix "|" rest
+    , not (T.null itemKey) ->
         Just
           Candidate
             { session = Session {hierarchy = Search, multiSessionKey = Just key}
@@ -71,12 +74,12 @@ decodeCandidateId text = case Text.breakOn "|" text of
 findZone :: Text -> [Zone] -> Either Text Zone
 findZone wanted zones = case [zone | zone <- zones, zone.zoneId == ZoneId wanted] of
   zone : _ -> Right zone
-  [] -> case [zone | zone <- zones, Text.toCaseFold zone.displayName == Text.toCaseFold wanted] of
+  [] -> case [zone | zone <- zones, toCaseFold zone.displayName == toCaseFold wanted] of
     [zone] -> Right zone
     [] -> Left ("No zone named or identified as \"" <> wanted <> "\". Zones: " <> known)
     _ -> Left ("Several zones are named \"" <> wanted <> "\"; use a zone id. Zones: " <> known)
   where
-    known = Text.intercalate ", " [zone.displayName <> " (" <> unZoneId zone.zoneId <> ")" | zone <- zones]
+    known = intercalate ", " [zone.displayName <> " (" <> unZoneId zone.zoneId <> ")" | zone <- zones]
     unZoneId (ZoneId zoneId) = zoneId
 
 -- | How to put tracks in a queue.
@@ -118,10 +121,10 @@ plan mode tracks = case mode of
 -- dropped, in lower case. 'Nothing' when it does not name an image.
 imageMediaType :: Text -> Maybe Text
 imageMediaType contentType
-  | "image/" `Text.isPrefixOf` mediaType && Text.length mediaType > 6 = Just mediaType
+  | "image/" `isPrefixOf` mediaType && T.length mediaType > 6 = Just mediaType
   | otherwise = Nothing
   where
-    mediaType = Text.toLower (Text.strip (Text.takeWhile (/= ';') contentType))
+    mediaType = toLower (strip (T.takeWhile (/= ';') contentType))
 
 -- | What an item of the library is to the caller.
 data ItemKind
@@ -152,7 +155,7 @@ kindName = \case
   KindOther -> "text"
 
 kindLetter :: ItemKind -> Text
-kindLetter = Text.take 1 . kindName
+kindLetter = T.take 1 . kindName
 
 -- | An item of a listing, as its id names it.
 data ItemRef = ItemRef
@@ -181,28 +184,28 @@ libraryHierarchies =
 itemId :: Session -> Item -> Maybe Text
 itemId Session {hierarchy, multiSessionKey = Just sessionKey} item@Item {itemKey = Just key}
   | Just name <- lookup hierarchy [(found, name) | (name, found) <- libraryHierarchies] =
-      Just (Text.intercalate "|" [name, sessionKey, kindLetter (itemKind item), key])
+      Just (intercalate "|" [name, sessionKey, kindLetter (itemKind item), key])
 itemId _ _ = Nothing
 
 -- | The item an id names; 'Nothing' when the text is not an id.
 decodeItemId :: Text -> Maybe ItemRef
-decodeItemId text = case Text.splitOn "|" text of
+decodeItemId text = case splitOn "|" text of
   [name, sessionKey, letter, key]
     | Just hierarchy <- lookup name libraryHierarchies
     , kind : _ <- [found | found <- [minBound .. maxBound], kindLetter found == letter]
-    , not (Text.null sessionKey)
-    , not (Text.null key) ->
+    , not (T.null sessionKey)
+    , not (T.null key) ->
         Just ItemRef {session = Session {hierarchy, multiSessionKey = Just sessionKey}, kind, key}
   _ -> Nothing
 
 -- | A text of Roon without its links: @[[487290|Miles Davis]]@ is given
 -- as @Miles Davis@.
 plainText :: Text -> Text
-plainText text = case Text.breakOn "[[" text of
+plainText text = case breakOn "[[" text of
   (before, "") -> before
-  (before, rest) -> case Text.breakOn "]]" (Text.drop 2 rest) of
+  (before, rest) -> case breakOn "]]" (T.drop 2 rest) of
     (_, "") -> text
-    (link, after) -> before <> snd (Text.breakOnEnd "|" link) <> plainText (Text.drop 2 after)
+    (link, after) -> before <> snd (breakOnEnd "|" link) <> plainText (T.drop 2 after)
 
 -- | What to do with something to play.
 data PlayAction = ActPlayNow | ActAddNext | ActQueue | ActStartRadio | ActShuffle
@@ -234,8 +237,8 @@ parsePlayAction name = lookup name [(playActionName action, action) | action <- 
 -- this name, or all of them when none is asked for.
 outputsFor :: Maybe Text -> Zone -> Either Text [Output]
 outputsFor Nothing zone = Right zone.outputs
-outputsFor (Just wanted) zone = case [output | output <- zone.outputs, output.outputId == OutputId wanted || Text.toCaseFold output.displayName == Text.toCaseFold wanted] of
-  [] -> Left ("No output named or identified as \"" <> wanted <> "\" in " <> zone.displayName <> ". Outputs: " <> Text.intercalate ", " (map (.displayName) zone.outputs))
+outputsFor (Just wanted) zone = case [output | output <- zone.outputs, output.outputId == OutputId wanted || toCaseFold output.displayName == toCaseFold wanted] of
+  [] -> Left ("No output named or identified as \"" <> wanted <> "\" in " <> zone.displayName <> ". Outputs: " <> intercalate ", " (map (.displayName) zone.outputs))
   found -> Right found
 
 -- | A volume kept within what the output accepts, when it says.
