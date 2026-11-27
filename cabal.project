@@ -27,7 +27,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/GuillaumedeVolpiano/roon-api
-  tag: v0.2.0.4
+  tag: v0.2.0.5
 
 source-repository-package
   type: git
